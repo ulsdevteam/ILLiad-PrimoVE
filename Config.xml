@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Name>Primo VE</Name>
+  <Author>IDS Project</Author>
+  <Version>1.1</Version>
+  <Active>True</Active>
+  <Type>Addon</Type>
+  <Description>Performs an Title, OCLC#, ISBN, and ISSN Search in the Primo VE interface.</Description>
+  <Forms>
+    <Form>FormRequest</Form>
+  </Forms>
+  <Settings>
+    <Setting name="AutoSearchISxN" value="" type="boolean">
+      <Description>Defines whether the ISxN search should be automatically performed when the form opens.</Description>
+    </Setting>
+	<Setting name="AutoSearchOCLC" value="" type="boolean">
+      <Description>Defines whether the OCLC# search should be automatically performed when the form opens.</Description>
+    </Setting>
+    <Setting name="AutoSearchTitle" value="" type="boolean">
+      <Description>Defines whether the Title search should be automatically performed when the form opens.</Description>
+    </Setting>
+    <Setting name="PrimoVEURL" value="" type="string">
+      <Description>Defines the default landing page for your Primo VE page  See the ReadMe for an example.</Description>
+    </Setting>
+	<Setting name="BaseVEURL" value="" type="string">
+      <Description>Defines the base of your Primo VE URL. See the ReadMe for an example.</Description>
+    </Setting>
+    <Setting name="DatabaseName" value="" type="string">
+      <Description>Defines the Database Name of your Primo VE URL. See the ReadMe for an example.</Description>
+    </Setting>
+  </Settings>
+  <Files>
+    <File>PrimoVE.lua</File>
+  </Files>
+</Configuration>
