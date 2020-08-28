@@ -1,32 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <Name>Primo VE</Name>
-  <Author>IDS Project</Author>
-  <Version>1.1</Version>
+  <Name>PittPrimoVE</Name>
+  <Author>ULS</Author>
+  <Version>3.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
   <Description>Performs an Title, OCLC#, ISBN, and ISSN Search in the Primo VE interface.</Description>
   <Forms>
     <Form>FormRequest</Form>
   </Forms>
+  <Permissions />
   <Settings>
     <Setting name="AutoSearchISxN" value="" type="boolean">
       <Description>Defines whether the ISxN search should be automatically performed when the form opens.</Description>
     </Setting>
-	<Setting name="AutoSearchOCLC" value="" type="boolean">
+    <Setting name="AutoSearchOCLC" value="" type="boolean">
       <Description>Defines whether the OCLC# search should be automatically performed when the form opens.</Description>
     </Setting>
-    <Setting name="AutoSearchTitle" value="" type="boolean">
+    <Setting name="AutoSearchTitle" value="true" type="boolean">
       <Description>Defines whether the Title search should be automatically performed when the form opens.</Description>
     </Setting>
-    <Setting name="PrimoVEURL" value="" type="string">
+    <Setting name="PrimoVEURL" value="https://myinst.primo.exlibrisgroup.com/discovery/search?" type="string">
       <Description>Defines the default landing page for your Primo VE page  See the ReadMe for an example.</Description>
     </Setting>
-	<Setting name="BaseVEURL" value="" type="string">
+    <Setting name="BaseVEURL" value="https://myinst.primo.exlibrisgroup.com" type="string">
       <Description>Defines the base of your Primo VE URL. See the ReadMe for an example.</Description>
     </Setting>
-    <Setting name="DatabaseName" value="" type="string">
+    <Setting name="DatabaseName" value="01MY_INST:MYVIEW" type="string">
       <Description>Defines the Database Name of your Primo VE URL. See the ReadMe for an example.</Description>
+    </Setting>
+	<Setting name="AgencyID" value="01MY_INST" type="string">
+      <Description>Alma institution code.</Description>
+    </Setting>
+	<Setting name="ApplicationProfileType" value="MY_LOCATION" type="string">
+      <Description>The code of the Alma partner record which is the target of the NCIP message.</Description>
+    </Setting>
+	<Setting name="APIEndpoint" value="https://api-na.hosted.exlibrisgroup.com/almaws/v1/partners/MY_LOCATION/lending-requests" type="string">
+      <Description>This setting value is the address for the NCIP Responder URL.</Description>
+    </Setting>
+	<Setting name="AlmaBaseURL" value="https://myinst.alma.hosted.exlibrisgroup.com/" type="string">
+      <Description>This setting value is the address for the Alma Base URL.</Description>
+    </Setting>
+	<Setting name="APIKey" value="MY_API_KEY_HERE" type="string">
+      <Description>The API key (must have Alma permissions for *list permissions here*)</Description>
     </Setting>
   </Settings>
   <Files>
