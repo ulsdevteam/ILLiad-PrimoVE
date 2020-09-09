@@ -21,13 +21,13 @@
       <Description>Defines whether the Title search should be automatically performed when the form opens.</Description>
     </Setting>
     <Setting name="PrimoVEURL" value="https://myinst.primo.exlibrisgroup.com/discovery/search?" type="string">
-      <Description>Defines the default landing page for your Primo VE page  See the ReadMe for an example.</Description>
+      <Description>Defines the default landing page for your Primo VE page.</Description>
     </Setting>
     <Setting name="BaseVEURL" value="https://myinst.primo.exlibrisgroup.com" type="string">
-      <Description>Defines the base of your Primo VE URL. See the ReadMe for an example.</Description>
+      <Description>Defines the base of your Primo VE URL.</Description>
     </Setting>
     <Setting name="DatabaseName" value="01MY_INST:MYVIEW" type="string">
-      <Description>Defines the Database Name of your Primo VE URL. See the ReadMe for an example.</Description>
+      <Description>Defines the Database Name of your Primo VE URL.</Description>
     </Setting>
 	<Setting name="AgencyID" value="01MY_INST" type="string">
       <Description>Alma institution code.</Description>
@@ -42,7 +42,7 @@
       <Description>This setting value is the address for the Alma Base URL.</Description>
     </Setting>
 	<Setting name="APIKey" value="MY_API_KEY_HERE" type="string">
-      <Description>The API key (must have Alma permissions for *list permissions here*)</Description>
+      <Description>The API key (must have Alma permissions for "Partners - Read/write")</Description>
     </Setting>
   </Settings>
   <Files>

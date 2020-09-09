@@ -1,10 +1,3 @@
-# ILLiad PrimoVE integration
-
-Original source shared by SUNY Libraries Consortium
-https://slcny.libanswers.com/faq/266866
-
-## Configuration
-
 -- AutoSearchISxN
 -- AutoSearchTitle
 
