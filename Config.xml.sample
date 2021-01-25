@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <Name>PittPrimoVE</Name>
+  <Name>PrimoVE</Name>
   <Author>ULS</Author>
-  <Version>3.0</Version>
+  <Version>5.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
-  <Description>Performs an Title, OCLC#, ISBN, and ISSN Search in the Primo VE interface.</Description>
+  <Description>Performs a Title, OCLC#, ISBN, and ISSN Search in the Primo VE interface and allows API Patron Physical Item Requests.</Description>
   <Forms>
     <Form>FormRequest</Form>
   </Forms>
-  <Permissions />
   <Settings>
+    <Setting name="DebugMode" value="true" type="boolean">
+      <Description>If TRUE, Sandbox API key is used.</Description>
+    </Setting>
     <Setting name="AutoSearchISxN" value="" type="boolean">
       <Description>Defines whether the ISxN search should be automatically performed when the form opens.</Description>
     </Setting>
@@ -20,29 +22,38 @@
     <Setting name="AutoSearchTitle" value="true" type="boolean">
       <Description>Defines whether the Title search should be automatically performed when the form opens.</Description>
     </Setting>
-    <Setting name="PrimoVEURL" value="https://myinst.primo.exlibrisgroup.com/discovery/search?" type="string">
-      <Description>Defines the default landing page for your Primo VE page.</Description>
+    <Setting name="APIEndpoint" value="https://api-na.hosted.exlibrisgroup.com/almaws/v1/" type="string">
+      <Description>Alma API endpoint address.</Description>
     </Setting>
-    <Setting name="BaseVEURL" value="https://myinst.primo.exlibrisgroup.com" type="string">
-      <Description>Defines the base of your Primo VE URL.</Description>
+    <Setting name="ProductionAPIKey" value="08xx2200a008ced2324cad4e00d22b8ab29a" type="string">
+      <Description>The Production API key (must have Alma permissions for "Bibs - Production Read/write", "Users - Production Read/write")</Description>
     </Setting>
-    <Setting name="DatabaseName" value="01MY_INST:MYVIEW" type="string">
-      <Description>Defines the Database Name of your Primo VE URL.</Description>
+    <Setting name="SandboxAPIKey" value="08xxbed7b7a0d9531d6b83be3f0298db4bb8" type="string">
+      <Description>The Sandbox API key (must have Alma permissions for "Bibs - Sandbox Read/write", "Users - Sandbox Read/write")</Description>
     </Setting>
-	<Setting name="AgencyID" value="01MY_INST" type="string">
+    <Setting name="SandboxBaseVEURL" value="https://myinst-psb.primo.exlibrisgroup.com" type="string">
+      <Description>Defines the base of your Sandbox Primo VE URL.</Description>
+    </Setting>
+    <Setting name="ProductionBaseVEURL" value="https://myinst.primo.exlibrisgroup.com" type="string">
+      <Description>Defines the base of your Primo VE URL. See the ReadMe for an example.</Description>
+    </Setting>
+    <Setting name="DatabaseName" value="01MY_INST:01MY_INST" type="string">
+      <Description>Defines the Database Name of your Primo VE URL. See the ReadMe for an example.</Description>
+    </Setting>
+    <Setting name="AgencyID" value="01MY_INST" type="string">
       <Description>Alma institution code.</Description>
     </Setting>
-	<Setting name="ApplicationProfileType" value="MY_LOCATION" type="string">
+    <Setting name="ApplicationProfileType" value="XXX" type="string">
       <Description>The code of the Alma partner record which is the target of the NCIP message.</Description>
     </Setting>
-	<Setting name="APIEndpoint" value="https://api-na.hosted.exlibrisgroup.com/almaws/v1/partners/MY_LOCATION/lending-requests" type="string">
-      <Description>This setting value is the address for the NCIP Responder URL.</Description>
-    </Setting>
-	<Setting name="AlmaBaseURL" value="https://myinst.alma.hosted.exlibrisgroup.com/" type="string">
+    <Setting name="AlmaBaseURL" value="https://myinst.alma.hosted.exlibrisgroup.com/" type="string">
       <Description>This setting value is the address for the Alma Base URL.</Description>
     </Setting>
-	<Setting name="APIKey" value="MY_API_KEY_HERE" type="string">
-      <Description>The API key (must have Alma permissions for "Partners - Read/write")</Description>
+    <Setting name="PseudopatronCDS" value="2x00n00000000000" type="string">
+      <Description>Primary ID of pseudopatron used to place patron physical item requests.</Description>
+    </Setting>
+    <Setting name="PickupLocationLibrary" value="ZZZ" type="string">
+      <Description>Alma Library code for patron physical item request destination.  Ensure that this location has a hold shelf.</Description>
     </Setting>
   </Settings>
   <Files>

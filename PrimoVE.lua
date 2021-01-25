@@ -1,8 +1,20 @@
 -- About PrimoVE.lua
 --
--- version 3.0 sends API lending request, as NCIP requests could not target a barcode
+-- version 5.0 handles multipiece lending, using ILLiad transaction fields ItemInfo1 and ItemInfo2 to store delimited barcodes and Alma request IDs, respectively
+-- Custom transaction fields ItemInfo1 and ItemInfo2 were not previously used by Pitt ULS, and are nvarchar(255).
+-- A maximum of 15 pieces can be used with this method (16 digit Alma requestID plus delimiters)
+
+-- version 4.0 sends API patron physical item request, as NCIP requests could not target a barcode
 
 -- Updated for ULS by Jason Thorhauer jat188@pitt.edu
+-- Uses API Patron Physical Item Request to transit items from holding libraries to Resource Sharing library (ILL office)
+
+-- These are helpful development resources:
+-- http://www.lua.org/manual/5.1/manual.html
+-- https://atlas-sys.atlassian.net/wiki/spaces/ILLiadAddons/pages/3149440/Client+Addons
+
+
+
 -- Updated for Primo VE by Mark Sullivan, IDS Project, Mark@idsproject.org
 -- Author: Bill Jones III, SUNY Geneseo, IDS Project, jonesw@geneseo.edu
 -- PrimoVE.lua provides a basic search for ISBN, ISSN, Title, and Phrase Searching for the Primo VE interface.
@@ -12,18 +24,40 @@
 -- set AutoSearchISxN to true if you would like the Addon to automatically search for the ISxN.
 -- set AutoSearchTitle to true if you would like the Addon to automatically search for the Title.
 
+
 local settings = {};
 settings.AutoSearchISxN = GetSetting("AutoSearchISxN");
 settings.AutoSearchOCLC = GetSetting("AutoSearchOCLC");
 settings.AutoSearchTitle = GetSetting("AutoSearchTitle");
 settings.PrimoVEURL = GetSetting("PrimoVEURL");
-settings.BaseVEURL = GetSetting("BaseVEURL");
 settings.AlmaBaseURL = GetSetting("AlmaBaseURL");
+-- Add trailing slash to AlmaBaseURL if not present
+lastChar = string.sub(settings.AlmaBaseURL, -1);
+if (lastChar ~= "/") then 
+	settings.AlmaBaseURL = settings.AlmaBaseURL .. "/"; 
+end 
+
+-- Add trailing slash to APIEndpoint if not present
+settings.APIEndpoint = GetSetting("APIEndpoint");
+lastChar = string.sub(settings.APIEndpoint, -1);
+if (lastChar ~= "/") then 
+	settings.APIEndpoint = settings.APIEndpoint .. "/"; 
+end 
+
 settings.DatabaseName = GetSetting("DatabaseName");
 settings.AgencyID = GetSetting("AgencyID");
 settings.ApplicationProfileType = GetSetting("ApplicationProfileType");
-settings.APIEndpoint = GetSetting("API_Endpoint");
-settings.APIkey = GetSetting("APIKey");
+settings.PseudopatronCDS = GetSetting("PseudopatronCDS");
+
+local DebugMode = GetSetting("DebugMode");
+if (DebugMode==true) then
+	settings.APIKey = GetSetting("SandboxAPIKey");
+	settings.BaseVEURL = GetSetting("ProductionBaseVEURL");
+else
+	settings.APIKey = GetSetting("ProductionAPIKey");
+	settings.BaseVEURL = GetSetting("SandboxBaseVEURL");
+end
+
 
 luanet.load_assembly("System.Windows.Forms");
 
@@ -79,14 +113,15 @@ function Init()
 	PrimoVEForm.RibbonPage:CreateButton("Search Title", GetClientImage("Search32"), "SearchTitle", "Search PrimoVE");
 	PrimoVEForm.RibbonPage:CreateButton("Search ISxN", GetClientImage("Search32"), "SearchISxN", "Search PrimoVE");
 	PrimoVEForm.RibbonPage:CreateButton("Search OCLC#", GetClientImage("Search32"), "SearchOCLC", "Search PrimoVE");
-	PrimoVEForm.ImportButton = PrimoVEForm.RibbonPage:CreateButton("Select a single PrimoVE location first", GetClientImage("Search32"), "ImportAndUpdateRecord", "Update Record");
-	PrimoVEForm.RequestButton = PrimoVEForm.RibbonPage:CreateButton("Request item from holding library", GetClientImage("ImportData32"), "RequestItem", "Request Item via API");
+	PrimoVEForm.ImportButton = PrimoVEForm.RibbonPage:CreateButton("Select a single PrimoVE location first", GetClientImage("ImportData32"), "ImportAndUpdateRecord", "Update Record");
+	PrimoVEForm.AppendButton = PrimoVEForm.RibbonPage:CreateButton("Append this barcode", GetClientImage("Add32"), "AppendBarcode", "Append a Barcode");
+	PrimoVEForm.AppendButton.BarButton.Enabled = false;
+	PrimoVEForm.RequestButton = PrimoVEForm.RibbonPage:CreateButton("Request item from holding library", GetClientImage("ImportData32"), "RequestItem", "Request item via API");
 	PrimoVEForm.ReportIssueButton = PrimoVEForm.RibbonPage:CreateButton("Report catalog problem", GetClientImage("Alarm32"), "ReportIssue", "Report Catalog Error");
 	
-	
+	PrimoVEForm.TestButton = PrimoVEForm.RibbonPage:CreateButton("TEST", GetClientImage("ImportData32"), "Test", "Test");
 	--feature not yet implemented
 	PrimoVEForm.ReportIssueButton.BarButton.Enabled = false;
-	
 	
     PrimoVEForm.Form:Show();
     end
@@ -100,47 +135,117 @@ function Init()
 	else 
 		DefaultURL();
 	end
+
+
+-- Atlas Systems encouraged the use of transaction fields ItemNumber and ReferenceNumber.  Unfortunately these are nvarchar(20) and nvarchar(50) respectively.
+-- For multivolume lending with delimited barcodes it is necessary to use ItemInfo1 and ItemInfo2 fields as they are nvarchar(255)
+-- If a record contains data in ItemNumber or ReferenceNumber fields, transfer them to the new fields and resave the transaction.
+
+oldbarcode = GetFieldValue("Transaction", "ItemNumber");
+oldreqid = GetFieldValue("Transaction", "ReferenceNumber");
+if (oldbarcode ~= '') then
+	SetFieldValue("Transaction","ItemInfo1",oldbarcode);
+	SetFieldValue("Transaction","ItemNumber",'');
+	ExecuteCommand("Save", {"Transaction"});
+end
+
+if (oldreqid ~= '') then
+	SetFieldValue("Transaction","ItemInfo2",oldreqid);
+	SetFieldValue("Transaction","ReferenceNumber",'');
+	ExecuteCommand("Save", {"Transaction"});
+end
+
+
 	
 		PrimoVEForm.ImportButton.BarButton.Enabled = false;
+		PrimoVEForm.RequestButton.BarButton.Enabled = false;
 		
-		local MMSID = GetFieldValue("Transaction","ReferenceNumber");
-		
-		-- LUA empty strings are NOT nil!
-		if (MMSID == '') then
-			PrimoVEForm.RequestButton.BarButton.Enabled = false;
-		else
-			PrimoVEForm.RequestButton.BarButton.Enabled = true;
-		end
+	-- Don't enable Request button if barcodes do not match number of pieces
+	if (EnoughBarcodes()) then
+	PrimoVEForm.RequestButton.BarButton.Enabled = true;
+	PrimoVEForm.RequestButton.BarButton.Caption = "Request item(s) from holding library";
+	else
+	PrimoVEForm.RequestButton.BarButton.Enabled = false;
+	end
+
 
 end
 
 
-function SRU()
--- Send item barcode to SRU endpoint, parse DublinCore response, verify that NumberOfRecords == 1, use RecordIdentifier as MMS_ID
+function AppendBarcode()
+local tagElements = PrimoVEForm.Browser.WebBrowser.Document:GetElementsByTagName("prm-location-items");
+local appendbarcode = '';
 
+--[[ MATCH STRINGS
+Item status
+<span class="availability-status available" translate="fulldisplay.availabilty.available">
+Item location
+<h4 class="md-title ng-binding zero-margin" ng-if="$ctrl.currLoc.location &amp;&amp; $ctrl.getLibraryName($ctrl.currLoc.location)">
+Library
+<span ng-if="$ctrl.currLoc.location &amp;&amp; $ctrl.currLoc.location.subLocation &amp;&amp; $ctrl.getSubLibraryName($ctrl.currLoc.location)" ng-bind-html="$ctrl.currLoc.location.collectionTranslation">
+Call number
+<span dir="auto" ng-if="$ctrl.currLoc.location.callNumber">
+ESCAPE QUOTES WITH \
+ESCAPE ( ) . % + - * ? [ ^ $ with %
+[SIC] fulldisplay.availbilty.available is not spelled correctly because PrimoVE spells the class this way
+<span class=\"availability%-status available\" translate=\"fulldisplay%.availabilty%.available\">
+<h4 class=\"md%-title ng%-binding zero%-margin\" ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.getLibraryName%(%$ctrl%.currLoc%.location%)\">
+<span ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.currLoc%.location%.subLocation &amp;&amp; %$ctrl%.getSubLibraryName%(%$ctrl%.currLoc%.location%)\" ng%-bind%-html=\"%$ctrl%.currLoc%.location%.collectionTranslation\">
+<span dir=\"auto\" ng%-if=\"%$ctrl%.currLoc%.location%.callNumber\">
+--]]
+	if tagElements ~= nil then
+		
+		local pElements = PrimoVEForm.Browser.WebBrowser.Document:GetElementsByTagName("p");	
+		if pElements ~=nil then
+			for k=0, pElements.Count - 1 do
+				outerHTMLstring = pElements[k].outerHTML
+				if outerHTMLstring:match("<p>Barcode: (.-)</p>") then
+					appendbarcode = outerHTMLstring:match("<p>Barcode: (.-)</p>")
+				end
+				
+			end
+		end
+		
 
-itembarcode = GetFieldValue("Transaction", "ItemNumber");
-local SRUendpoint = settings.AlmaBaseURL .. 'view/sru/' .. settings.AgencyId .. '?version=1.2&operation=searchRetrieve&recordSchema=dc&query=alma.barcode=' .. itembarcode
-LogDebug("Querying SRU for barcode"..itembarcode);
+	existingbarcodes = GetFieldValue("Transaction", "ItemInfo1");
+	updatedbarcodes = existingbarcodes .. "/" .. appendbarcode;
+	SetFieldValue("Transaction","ItemInfo1", updatedbarcodes);
+	ExecuteCommand("Save", {"Transaction"});
+	EnoughBarcodes()
+
+	end
+end
+
+function Test()
+
+end
+
+function GetHoldingData(itembarcode)
+-- Returns mms_id, holding_id, pid, and location via API using item barcode
+
+local APIAddress = settings.APIEndpoint ..'items?item_barcode=' .. itembarcode .. '&apikey=' .. settings.APIKey
+LogDebug('PrimoVE:Attempting to use API endpoint ' .. APIAddress);
+LogDebug('PrimoVE:API holding lookup for barcode ' .. itembarcode);
 
 luanet.load_assembly("System");
-
-local SRUWebClient = luanet.import_type("System.Net.WebClient");
+local APIWebClient = luanet.import_type("System.Net.WebClient");
 local streamreader = luanet.import_type("System.Net.IO.StreamReader");
-local ThisWebClient = SRUWebClient();
-LogDebug("SRU Webclient Created");
+local ThisWebClient = APIWebClient();
 
-local SRUResults = ThisWebClient:DownloadString(SRUendpoint);
+local APIResults = ThisWebClient:DownloadString(APIAddress);
 
-local NumberOfRecords = SRUResults:match("numberOfRecords>(.-)<");
-LogDebug(NumberOfRecords.." SRU results for barcode "..itembarcode);
+LogDebug("PrimoVE:Holdings response was[" .. APIResults .. "]");
+	
+local mms_id = APIResults:match("<mms_id>(.-)</mms_id");
+local holding_id = APIResults:match("<holding_id>(.-)</holding_id>");
+local pid = APIResults:match("<pid>(.-)</pid>");
+local library = APIResults:match("<library desc=\"(.-)\"");
+local location = APIResults:match("<location desc=\"(.-)\"");
 
-if (NumberOfRecords == '1') then
-	local MMSID = SRUResults:match("recordIdentifier>(.-)<");
-	LogDebug('Writing MMS_ID '.. MMSID ..' to ReferenceNumber field');
-	SetFieldValue("Transaction", "ReferenceNumber", MMSID);
-end
+local holdinglibrary = library .. " " .. location;
 
+LogDebug('PrimoVE:Found mms_id ' .. mms_id .. ', holding_id ' .. holding_id .. ', pid ' .. pid .. ' for barcode ' .. itembarcode .. " at " .. holdinglibrary);
+return mms_id, holding_id, pid, holdinglibrary;
 end
 
 
@@ -149,108 +254,115 @@ function ReportIssue()
 -- ReportIssueForm.Form = interfaceMngr:CreateForm("ReportIssue", "Script");
 -- ReportIssueForm.Browser = ReportIssueForm.Form:CreateBrowser("Report an issue", "Report an Issue", "ReportIssue");
 -- local currenturl = tostring(PrimoVEForm.Browser.WebBrowser.Url);
-ReportIssueForm.Form:Show();
+--ReportIssueForm.Form:Show();
 
-	
 end
 
 
 function RequestItem()
--- Alma RequestItem API calls work with both bibliographic IDs and barcodes!.  This is much more useful than NCIP-based bibliographic-only requests!
-local tn = tonumber(GetFieldValue("Transaction", "TransactionNumber"));
-local barcode = GetFieldValue("Transaction","ItemNumber");
-local MMSID = GetFieldValue("Transaction","ReferenceNumber");
+-- Alma Patron Physical Item Request API call
+PrimoVEForm.RequestButton.BarButton.Enabled = false;
+PrimoVEForm.RequestButton.BarButton.Caption = "Request placed";
 
--- LUA empty strings are NOT nil!
-if barcode == '' then
+local tn = tonumber(GetFieldValue("Transaction", "TransactionNumber"));
+local barcodesfielddata = GetFieldValue("Transaction","ItemInfo1");
+local barcodearray = {};
+local i = 0;
+
+-- LUA empty strings are NOT nil!  Do not attempt request if barcodes are not present
+if barcodesfielddata == '' then
 	interfaceMngr:ShowMessage("No barcode saved in record - please verify barcode","No barcode");
 	ExecuteCommand("SwitchTab", {"Detail"});
 	return;
-elseif (MMSID == '') then
-	-- call function to perform MMS_ID lookup from barcode
-	SRU();
-	MMSID = GetFieldValue("Transaction","ReferenceNumber");
-end
-
-
-LogDebug("Building Lending Request API XML for MMS_ID "..MMSID.." and barcode "..barcode);
-
--- reverify that the MMS_ID exists before attempting to submit request
-if (MMSID ~= '') then					
+else
+	pieces = CountPieces();
+	barcodearray = Parse(barcodesfielddata, "/");
 	
-		local dr = tostring(GetFieldValue("Transaction", "DueDate"));
-		local df = string.match(dr, "%d+\/%d+\/%d+");
-		local mn, dy, yr = string.match(df, "(%d+)/(%d+)/(%d+)");
-		local mnt = string.format("%02d",mn);
-		local dya = string.format("%02d",dy);
-		local LRAPImessage = '';
-		LRAPImessage = LRAPImessage .. '<?xml version="1.0" encoding="UTF-8"?>'
-		LRAPImessage = LRAPImessage .. '<user_resource_sharing_request>'	
-		LRAPImessage = LRAPImessage .. '<external_id>' .. tn .. '</external_id>'
-		LRAPImessage = LRAPImessage .. '<partner>' .. settings.ApplicationProfileType .. '</partner>'
-		LRAPImessage = LRAPImessage .. '<owner>RES_SHARE</owner>' 
-		LRAPImessage = LRAPImessage .. '<requested_media>1</requested_media>'
-		LRAPImessage = LRAPImessage .. '<format>PHYSICAL</format>'
-		LRAPImessage = LRAPImessage .. '<note>ILLiad TN ' .. tn .. '</note>' 
-		LRAPImessage = LRAPImessage .. '<mms_id>' .. MMSID .. '</mms_id>'
-		LRAPImessage = LRAPImessage .. '<barcode>' .. barcode ..'</barcode>'
-		LRAPImessage = LRAPImessage .. '<citation_type desc="string">'
-		LRAPImessage = LRAPImessage .. '<xml_value>BOOK</xml_value>'
-		LRAPImessage = LRAPImessage .. '</citation_type>'
-		LRAPImessage = LRAPImessage .. '</user_resource_sharing_request>'
-	
-		
-		--[[
-		This is what a functional API request message looks like:
-		<?xml version="1.0" encoding="UTF-8"?>
-		<user_resource_sharing_request>
-		<external_id>JPTTEST08132020</external_id>
-		<partner>ULS_ILLIAD</partner>
-		<owner>RES_SHARE</owner>
-		<requested_media>1</requested_media>
-		<format>PHYSICAL</format>
-		<note>This is a note added to the request</note>
-		<mms_id>9941969813406236</mms_id>
-		<barcode>31735049669280</barcode>
-		<citation_type desc="string"> 
-		<xml_value>BOOK</xml_value> 
-		</citation_type>
-		</user_resource_sharing_request>
-		]]--
-		
-		LogDebug("Sending Lending Request to holding library: "..LRAPImessage);
-		ExecuteCommand("AddHistory", {tn, 'LendingRequest API xml sent', 'System'})
-		
-		local APIAddress = settings.APIEndpoint .. "?apikey=" .. settings.APIKey;
-		luanet.load_assembly("System");
-		local WebClient = luanet.import_type("System.Net.WebClient");
-		local LRWebClient = WebClient();
-		LogDebug("WebClient Created");
-		LogDebug("Adding Header");
-		
-		LRWebClient.Headers:Add("Content-Type", "application/xml;charset=UTF-8");
-		local LRresponseArray = LRWebClient:UploadString(APIAddress, LRAPImessage);
-		LogDebug("Upload response was[" .. LRresponseArray .. "]");
+	if (#barcodearray == pieces) then
+		for i = 0,(#barcodearray)-1 do
+
+			-- call function to retrieve mms_id, holding_id, and pid from barcode via API
+			mmsid, holdingid, pid, holdinglibrary = GetHoldingData((barcodearray[i+1]));
+
+			LogDebug("PrimoVE:Building Patron Physical Item Request API XML for barcode " .. barcodearray[i+1]);
+
+			local PPIRAPImessage = '';
+			PPIRAPImessage = PPIRAPImessage .. '<?xml version="1.0" encoding="UTF-8"?>';
+			PPIRAPImessage = PPIRAPImessage .. '<user_request>';
+			PPIRAPImessage = PPIRAPImessage .. '<desc>Patron physical item request</desc>';
+			PPIRAPImessage = PPIRAPImessage .. '<request_type>HOLD</request_type>';
+			PPIRAPImessage = PPIRAPImessage .. '<comment>ILL' .. tn .. '</comment>';
+			PPIRAPImessage = PPIRAPImessage .. '<pickup_location_type>LIBRARY</pickup_location_type>';
+			PPIRAPImessage = PPIRAPImessage .. '<pickup_location_library>' .. GetSetting("PickupLocationLibrary") .. '</pickup_location_library>';
+			PPIRAPImessage = PPIRAPImessage .. '<material_type>BOOK</material_type>'; 
+			PPIRAPImessage = PPIRAPImessage .. '</user_request>';
+				
+			--[[
+			This is what a functional API request message looks like:
+			<?xml version="1.0" encoding="UTF-8"?>
+			<user_request>
+			<desc>Patron physical item request</desc>
+			<request_type>HOLD</request_type>
+			<comment>ILL tn number</comment>
+			<pickup_location_type>LIBRARY</pickup_location_type>
+			<pickup_location_library>HILL</pickup_location_library>
+			<material_type>BOOK</material_type>
+			</user_request>
+			]]--
+				
 			
-		--Move to failure queue if API fails
-		--Alma currently permits NCIP requests for nonexistent MMS_IDs it isn't possible to do a lot of trapping or validation here
-		--APIs provide slightly more flexibility, so it should be possible to parse out XML response LRresponseArray and show details of <Error Message> as a TN History entry if <errorsExist> is TRUE
-		--Failed requests should be routed to the failure queue for later intervention
-		--ExecuteCommand("Route", {tn, "API Error: LendingRequestItem Failed"});
+				
+			local APIAddress = settings.APIEndpoint .. 'bibs/' .. mmsid .. '/holdings/' .. holdingid ..'/items/' .. pid .. '/requests?apikey=' .. settings.APIKey .. '&user_id=' .. settings.PseudopatronCDS;
+			LogDebug('PrimoVE:Attempting to use API Endpoint '.. APIAddress);
+			luanet.load_assembly("System");
+			local WebClient = luanet.import_type("System.Net.WebClient");
+			local PPIRWebClient = WebClient();
+			LogDebug("WebClient Created");
+			LogDebug("Adding Header");
+				
+			PPIRWebClient.Headers:Add("Content-Type", "application/xml;charset=UTF-8");
+			local PPIRresponseArray = PPIRWebClient:UploadString(APIAddress, PPIRAPImessage);
+			LogDebug("Upload response was[" .. PPIRresponseArray .. "]");
+			
+			-- Add Alma request ID to ILLiad transaction
+			local requestID = PPIRresponseArray:match("<request_id>(.-)</request_id");
+			LogDebug("PrimoVE:API item request sent to " .. holdinglibrary .. " with request ID " .. requestID .. " for barcode " .. barcodearray[i+1]);
+			ExecuteCommand("AddHistory", {tn, "API item request sent to " .. holdinglibrary .. " with request ID " .. requestID .. " for barcode " .. barcodearray[i+1], 'System'});
+			existingrequests = GetFieldValue("Transaction","ItemInfo2");
+				
+			if (existingrequests == '') then
+				SetFieldValue("Transaction", "ItemInfo2", requestID);
+			else
+				updatedrequests = existingrequests .. "/" .. requestID;
+				SetFieldValue("Transaction","ItemInfo2", updatedrequests);
+			end
+				
+			--Move to failure queue if API fails
+			--Alma currently permits NCIP requests for nonexistent MMS_IDs it isn't possible to do a lot of trapping or validation here
+			--APIs provide slightly more flexibility, so it should be possible to parse out XML response LRresponseArray and show details of <Error Message> as a TN History entry if <errorsExist> is TRUE
+			--Failed requests should be routed to the failure queue for later intervention
+			--ExecuteCommand("Route", {tn, "API Error: LendingRequestItem Failed"});
+			
+			--Generate a popup here confirming that the request was sent to prevent ILL practitioners from clicking it multiple times
+			interfaceMngr:ShowMessage("API item request sent to " .. holdinglibrary .. " with request ID " .. requestID .. " for barcode " .. barcodearray[i+1],"Success");
+			ExecuteCommand("SwitchTab", {"Detail"});
+			ExecuteCommand("Save", {"Transaction"});
+		-- End of Pieces iteration
+		end
 		
-		--There could be a popup here confirming that the request was sent to prevent ILL practitioners from clicking it multiple times
+	else interfaceMngr:ShowMessage(pieces - #barcodearray .. " piece(s) missing", "Not enough barcodes");
+	ExecuteCommand("SwitchTab", {"Detail"});
+	end
 		
-		ExecuteCommand("SwitchTab", {"Detail"});
-		
-		--ExecuteCommand("Save");
-end --don't bother running if MMS_ID is not located in ReferenceNumber field
 
+	-- End of verification that barcodes field is not blank
+	end
 
 end
 
 function DefaultURL()
 		InitializePageHandler();
-		PrimoVEForm.Browser:Navigate(settings.PrimoVEURL);
+		PrimoVEForm.Browser:Navigate(settings.BaseVEURL .. "/discovery/search?");
 end
 
 -- This function searches for ISxN for both Loan and Article requests.
@@ -316,8 +428,10 @@ if MagicSpanPresent then
 			--ESCAPE QUOTES WITH \
 			--ESCAPE ( ) . % + - * ? [ ^ $ with %
 			-- we need to look for button that contains aria-label="Expand/Collapse item"
+			-- 01122021 button is now labeled aria-label="Expand"
 			
-			buttonmatchpattern = "aria%-label=\"Expand/Collapse item\""
+			--buttonmatchpattern = "aria%-label=\"Expand/Collapse item\""
+			buttonmatchpattern = "aria%-label=\"Expand\""
 			for j=0, buttonarray.Count -1 do
 			
 				button = PrimoVEForm.Browser:GetElementByCollectionIndex(buttonarray, j);
@@ -333,7 +447,15 @@ if MagicSpanPresent then
 		
 		PrimoVEForm.ImportButton.BarButton.Caption = "Import call number, location, and barcode";
 		PrimoVEForm.ImportButton.BarButton.Enabled = true;
-		PrimoVEForm.RequestButton.BarButton.Enabled = true;
+		PrimoVEForm.AppendButton.BarButton.Enabled = true;
+		
+		if (EnoughBarcodes()) then
+			PrimoVEForm.AppendButton.BarButton.Caption = "No more pieces to locate";
+			PrimoVEForm.AppendButton.BarButton.Enabled = false;
+		else
+			PrimoVEForm.AppendButton.BarButton.Caption = "Append this barcode";
+			PrimoVEForm.AppendButton.BarButton.Enabled = true;
+		end
 		
 		StopPageWatcher();
 	else
@@ -341,6 +463,8 @@ if MagicSpanPresent then
 		StartPageWatcher();
 		PrimoVEForm.ImportButton.BarButton.Caption = "Select a single PrimoVE location first";
 		PrimoVEForm.ImportButton.BarButton.Enabled = false;
+		PrimoVEForm.AppendButton.BarButton.Caption = "Select a single PrimoVE location first";
+		PrimoVEForm.AppendButton.BarButton.Enabled = false;
 		
 	
 		
@@ -355,12 +479,48 @@ function StartPageWatcher()
     local checkIntervalMilliseconds = 3000; -- 3 seconds
     local maxWatchTimeMilliseconds = 600000; -- 10 minutes
     PrimoVEForm.Browser:StartPageWatcher(checkIntervalMilliseconds, maxWatchTimeMilliseconds);
-	local barcode = GetFieldValue("Transaction","ItemNumber");
-	
-	if (barcode ~= '') then
+end --end of StartPageWatcher function
+
+function EnoughBarcodes()
+local ParsedBarcodes = {};
+local pieces = CountPieces();
+local barcodes = GetFieldValue("Transaction","ItemInfo1");
+
+ParsedBarcodes = Parse(barcodes, '/');
+
+if (#ParsedBarcodes == pieces) then
+	PrimoVEForm.AppendButton.BarButton.Enabled = false;
+	PrimoVEForm.AppendButton.BarButton.Caption = #ParsedBarcodes .. " of " .. pieces .. " barcodes present";
 	PrimoVEForm.RequestButton.BarButton.Enabled = true;
+	PrimoVEForm.RequestButton.BarButton.Caption = "Request item(s) from holding library";
+	return true;
+	else if (pieces == 1) then
+	PrimoVEForm.AppendButton.BarButton.Caption = "Valid for multipiece requests only";
+	PrimoVEForm.AppendButton.BarButton.Enabled = false;
+	else
+	PrimoVEForm.RequestButton.BarButton.Enabled = false;
+	PrimoVEForm.RequestButton.BarButton.Caption = pieces - #ParsedBarcodes .. " barcode(s) missing";
+	PrimoVEForm.AppendButton.BarButton.Caption = "Append this barcode";
+	return false;
 	end
 	
+end
+
+end -- end of EnoughBarcodes function
+
+
+
+-- A simple function that takes delimited string and returns an array of delimited values
+function Parse(inputstr, delim)
+delim = delim or '/';
+local t={};
+
+	for field,s in string.gmatch(inputstr, "([^"..delim.."]*)("..delim.."?)") do 
+			table.insert(t,field)
+			if s=="" then return t
+			end
+	end
+
 end
 
 function StopPageWatcher()
@@ -394,27 +554,19 @@ local callnumber = {} ;
 --[[ MATCH STRINGS
 Item status
 <span class="availability-status available" translate="fulldisplay.availabilty.available">
-
 Item location
 <h4 class="md-title ng-binding zero-margin" ng-if="$ctrl.currLoc.location &amp;&amp; $ctrl.getLibraryName($ctrl.currLoc.location)">
-
 Library
 <span ng-if="$ctrl.currLoc.location &amp;&amp; $ctrl.currLoc.location.subLocation &amp;&amp; $ctrl.getSubLibraryName($ctrl.currLoc.location)" ng-bind-html="$ctrl.currLoc.location.collectionTranslation">
-
 Call number
 <span dir="auto" ng-if="$ctrl.currLoc.location.callNumber">
-
-
 ESCAPE QUOTES WITH \
 ESCAPE ( ) . % + - * ? [ ^ $ with %
-
 [SIC] fulldisplay.availbilty.available is not spelled correctly because PrimoVE spells the class this way
 <span class=\"availability%-status available\" translate=\"fulldisplay%.availabilty%.available\">
 <h4 class=\"md%-title ng%-binding zero%-margin\" ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.getLibraryName%(%$ctrl%.currLoc%.location%)\">
 <span ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.currLoc%.location%.subLocation &amp;&amp; %$ctrl%.getSubLibraryName%(%$ctrl%.currLoc%.location%)\" ng%-bind%-html=\"%$ctrl%.currLoc%.location%.collectionTranslation\">
 <span dir=\"auto\" ng%-if=\"%$ctrl%.currLoc%.location%.callNumber\">
-
-
 --]]
 		if tagElements ~= nil then
 			PrimoVEForm.ImportButton.BarButton.Enabled = true;
@@ -426,7 +578,7 @@ ESCAPE ( ) . % + - * ? [ ^ $ with %
 					outerHTMLstring = pElements[k].outerHTML
 					if outerHTMLstring:match("<p>Barcode: (.-)</p>") then
 						barcode = outerHTMLstring:match("<p>Barcode: (.-)</p>")
-						SetFieldValue("Transaction", "ItemNumber", barcode);
+						SetFieldValue("Transaction", "ItemInfo1", barcode);
 					end
 				
 				end
@@ -449,18 +601,38 @@ ESCAPE ( ) . % + - * ? [ ^ $ with %
 					end
 					
 					if ((library[j] ~= nil) and (location[j] ~= nil)) then
-					SetFieldValue("Transaction", "Location", library[j].." "..location[j]);
+						parsedlocation  = string.gsub(location[j],' %(Request This Item%)','')
+						SetFieldValue("Transaction", "Location", library[j].." "..parsedlocation);
+					
 					end
 								
 			end
-		--ExecuteCommand("Save");
+		
 		
 		else
 		PrimoVEForm.ImportButton.BarButton.Enabled = false;
-		if (MMSID == '') then
-			PrimoVEForm.RequestButton.BarButton.Enabled = false;
-		end
+		PrimoVEForm.AppendButton.BarButton.Enabled = false;
 		
 		end
-		
+	PrimoVEForm.ImportButton.BarButton.Enabled = false;
+	PrimoVEForm.AppendButton.BarButton.Enabled = false;
+	ExecuteCommand("Save", {"Transaction"});
+	EnoughBarcodes()
+end
+
+
+
+--A simple function to get the number of pieces in a transaction for iterative actions
+function CountPieces()
+local pieces = GetFieldValue("Transaction","Pieces");
+
+	if ((pieces == '' ) or (pieces == nil)) then
+		pieces = 1;
+		PrimoVEForm.AppendButton.BarButton.Caption = "Valid for multipiece requests only";
+		PrimoVEForm.AppendButton.BarButton.Enabled = false;
+	else 
+		PrimoVEForm.AppendButton.BarButton.Caption = "Add another barcode";
+		PrimoVEForm.AppendButton.BarButton.Enabled = true;
+	end
+return pieces;
 end
