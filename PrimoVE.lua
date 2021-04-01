@@ -1,5 +1,6 @@
 -- About PrimoVE.lua
 --
+-- version 10 removes IE browser functionality
 -- version 9.0 records the PrimoVE permalink in the ILL location field to identify when article requests are fulfilled by e-resources that do not have barcodes.
 -- version 8.5 includes better support for non-English title searches in PrimoVE by replacing U+FFFD character common in OCLC titles with PrimoVE single-character wildcard '?'
 -- additional prompts notify ILL practitioners when items are flagged as non-circulating or in-library use for physical loan requests
@@ -65,7 +66,6 @@ else
 	settings.BaseVEURL = GetSetting("ProductionBaseVEURL");
 end
 
-settings.UseChromiumBrowser = GetSetting("UseChromiumBrowser");
 
 luanet.load_assembly("System.Windows.Forms");
 
@@ -115,16 +115,9 @@ function Init()
 	
     -- Create browser
     PrimoVEForm.Form = interfaceMngr:CreateForm("PrimoVE", "Script");
+	LogDebug("PrimoVE: Using Chromium browser");
+	PrimoVEForm.Browser = PrimoVEForm.Form:CreateBrowser("PrimoVE", "PrimoVE", "PrimoVE", "Chromium");
 	
-	if (settings.UseChromiumBrowser == true) then
-		LogDebug("PrimoVE: Using Chromium browser");
-		PrimoVEForm.Browser = PrimoVEForm.Form:CreateBrowser("PrimoVE", "PrimoVE", "PrimoVE", "Chromium");
-	else
-		LogDebug("PrimoVE: Using IE browser");
-		PrimoVEForm.Browser = PrimoVEForm.Form:CreateBrowser("PrimoVE", "PrimoVE", "PrimoVE");
-		--Suppress Javascript errors.  Not supported for Chromium web brower
-		PrimoVEForm.Browser.WebBrowser.ScriptErrorsSuppressed = true;
-	end
 	
     -- Hide the text labels
     PrimoVEForm.Browser.TextVisible = false;
@@ -240,11 +233,7 @@ end
 function ReportIssue()
 	ReportIssueForm.Form = interfaceMngr:CreateForm("ReportIssue", "Script");
 
-	if (settings.UseChromiumBrowser == true) then
-		ReportIssueForm.Browser = ReportIssueForm.Form:CreateBrowser("Report an issue", "Report an Issue", "ReportIssue","Chromium");
-	else
-		ReportIssueForm.Browser = ReportIssueForm.Form:CreateBrowser("Report an issue", "Report an Issue", "ReportIssue");
-	end
+	ReportIssueForm.Browser = ReportIssueForm.Form:CreateBrowser("Report an issue", "Report an Issue", "ReportIssue","Chromium");
 
 	ReportIssueForm.RibbonPage = ReportIssueForm.Form:GetRibbonPage("ReportIssue");
 	ReportIssueForm.CloseButton = ReportIssueForm.RibbonPage:CreateButton("Close this form", GetClientImage("Close32"), "CloseReportIssueForm", "Close");
@@ -590,87 +579,6 @@ function SearchTitle()
 	end
 end
 
-function CheckPageIE()
-	-- first check to verify that a single record has been selected, but don't bother doing a deep dive unless the URL looks like a discovery result
-	local IsRecordExpanded = false;
-	local SingleLocationSelected = false;
-	EnoughBarcodes();
-
-	local currenturl = tostring(PrimoVEForm.Browser.WebBrowser.Url);
-
-	if (currenturl and currenturl:find("/discovery/fulldisplay")) then
-		LogDebug("PrimoVE:IE current URL is a fulldisplay result.  Looking for 'Back to Locations' span");
-		-- iterate through spans looking for "Back to Locations"
-		local spanElements = PrimoVEForm.Browser.WebBrowser.Document:GetElementsByTagName("span");
-		
-		for i=0, spanElements.Count - 1 do
-		
-			spanElement = PrimoVEForm.Browser:GetElementByCollectionIndex(spanElements, i);
-			if spanElement.InnerText == "Back to locations" then
-				SingleLocationSelected = true;
-				break;
-			else 
-				SingleLocationSelected = false;
-			end
-		
-		end
-
-	end
-
-	if (SingleLocationSelected) then
-			-- We found a SPAN that indicates a single record was selected.   Enable button to permit barcodes etc to be scraped from page
-		local buttonsfound = 0;
-		local buttonarray = PrimoVEForm.Browser.WebBrowser.Document:GetElementsByTagName("button");
-			
-			if (IsRecordExpanded == false) then
-				
-				--ESCAPE QUOTES WITH \
-				--ESCAPE ( ) . % + - * ? [ ^ $ with %
-				-- As of 01122021 button previously labeled aria-label="Expand/Collapse item" is now labeled aria-label="Expand" and aria-label="Collapse" depending on button state
-				
-				local buttonmatchpattern = "aria%-label=\"Collapse\""
-				
-				for j=0, buttonarray.Count -1 do
-				
-					
-					local button = PrimoVEForm.Browser:GetElementByCollectionIndex(buttonarray, j);
-									
-					if (button.outerHTML:find(buttonmatchpattern)) ~= nil then
-						buttonsfound = buttonsfound + 1;
-					end
-				end
-				
-				
-			end
-			
-			if (buttonsfound == 1) then
-				IsRecordExpanded = true;
-				PrimoVEForm.ImportButton.BarButton.Enabled = true;
-				EnoughBarcodes();
-			else
-				PrimoVEForm.ImportButton.BarButton.Enabled = false;
-				PrimoVEForm.ImportButton.BarButton.Caption = "Select a single item";
-			end;
-							
-			
-		else
-			-- We didn't find the SPAN we're looking for on this page, so keep waiting
-			StartPageWatcher();
-			
-			if (CountPieces() == 0) then
-				PrimoVEForm.ImportButton.BarButton.Caption = "# pieces missing";
-			else
-				PrimoVEForm.ImportButton.BarButton.Caption = "Select a single PrimoVE location first";
-			end
-			PrimoVEForm.ImportButton.BarButton.Enabled = false;
-			
-		
-	end
-
-	return IsRecordExpanded;
-
-end
-
 function FulfillFromEResource()
 
 	local JSGetViewOnline = [[
@@ -774,7 +682,7 @@ function CheckPageChromium()
 	-- first check to verify that the URL looks like a discovery result
 	local IsRecordExpanded = false;
 	local SingleLocationSelected = false;
-	--EnoughBarcodes();
+	EnoughBarcodes();
 
 	local currenturl = tostring(PrimoVEForm.Browser.WebBrowser.Address);
 
@@ -859,9 +767,10 @@ end
 
 function StartPageWatcher()
     watcherEnabled = true;
-    local checkIntervalMilliseconds = 2000; -- 2 seconds
+	local checkIntervalMilliseconds = 2000; -- 2 seconds
     local maxWatchTimeMilliseconds = 1200000; -- 20 minutes
     PrimoVEForm.Browser:StartPageWatcher(checkIntervalMilliseconds, maxWatchTimeMilliseconds);
+	EnoughBarcodes();
 end --end of StartPageWatcher function
 
 
@@ -869,11 +778,11 @@ end --end of StartPageWatcher function
 function EnoughBarcodes()
 	local ParsedBarcodes = {};
 	local pieces = CountPieces();
-
+	--LogDebug("PrimoVE: EnoughBarcodes function - found " .. pieces .. " pieces");
 	local barcodes = GetFieldValue("Transaction","ItemInfo1");
-
+	--LogDebug("PrimoVE: EnoughBarcodes function - found barcodes" .. barcodes);
 	ParsedBarcodes = Parse(barcodes, '/');
-
+	--LogDebug("PrimoVE: EnoughBarcodes function counted " .. #ParsedBarcodes .. " barcodes");
 	if (pieces == 0) then
 		PrimoVEForm.ImportButton.BarButton.Enabled = false;
 		PrimoVEForm.ImportButton.BarButton.Caption = "# pieces missing";
@@ -885,14 +794,17 @@ function EnoughBarcodes()
 		PrimoVEForm.ImportButton.BarButton.Caption = #ParsedBarcodes .. " of " .. pieces .. " barcodes present";
 		PrimoVEForm.RequestButton.BarButton.Enabled = true;
 		PrimoVEForm.RequestButton.BarButton.Caption = "Request item(s) from holding library";
-		StopPageWatcher();
 		return true;
 	elseif ((pieces == 1) or (#ParsedBarcodes == 0)) then
 		PrimoVEForm.ImportButton.BarButton.Caption = "Import call number, location, and barcode";
+		PrimoVEForm.RequestButton.BarButton.Enabled = false;
+		PrimoVEForm.RequestButton.BarButton.Caption = pieces - #ParsedBarcodes .. " barcode(s) missing";
+		--LogDebug("PrimoVE: " .. pieces - #ParsedBarcodes .. " missing");
 		return false;
 	else
 		PrimoVEForm.RequestButton.BarButton.Enabled = false;
 		PrimoVEForm.RequestButton.BarButton.Caption = pieces - #ParsedBarcodes .. " barcode(s) missing";
+		--LogDebug("PrimoVE: " .. pieces - #ParsedBarcodes .. " missing");
 		PrimoVEForm.ImportButton.BarButton.Caption = "Append this barcode";
 		return false;
 	end
@@ -928,12 +840,7 @@ function StopPageWatcher()
 end
 
 function InitializePageHandler()
-	if (settings.UseChromiumBrowser == true) then
-		PrimoVEForm.Browser:RegisterPageHandler("custom", "CheckPageChromium", "PageHandler", false);
-	elseif (settings.UseChromiumBrowser == false) then
-		PrimoVEForm.Browser:RegisterPageHandler("custom", "CheckPageIE", "PageHandler", false);
-	end
-
+	PrimoVEForm.Browser:RegisterPageHandler("custom", "CheckPageChromium", "PageHandler", false);
 end
 
 
@@ -941,15 +848,8 @@ function PageHandler()
 	InitializePageHandler();
 end
 
-function ImportAndUpdateRecord()
-	if (settings.UseChromiumBrowser == true) then
-		ImportAndUpdateRecordChromium();
-	elseif (settings.UseChromiumBrowser == false) then
-		ImportAndUpdateRecordIE();
-	end
-end
 
-function ImportAndUpdateRecordChromium()
+function ImportAndUpdateRecord()
 	local existingbarcodes = GetFieldValue("Transaction", "ItemInfo1");
 
 	local JSGetItemInfo = [[
@@ -971,12 +871,13 @@ function ImportAndUpdateRecordChromium()
 	end
 
 	local availabilityregexmatchpattern = [[<span class=\\"availability-status available\\" translate=\\"fulldisplay\\.availabilty\\.available\\">(.*?)<]];
+	sleep(1);
 	local availability = PrimoVEForm.Browser:EvaluateScript(JSGetItemInfo,availabilityregexmatchpattern);
 	if (availability.Success) then
 		availability = tostring(availability.Result);
 		LogDebug("PrimoVE: Javascript found availability " .. availability);
 	else
-		LogDebug("PrimoVE: Javascript error: " .. availability.Message);
+		LogDebug("PrimoVE: Javascript error getting availability: " .. availability.Message);
 	end
 
 	local libraryregexmatchpattern = [[\\$ctrl\\.getLibraryName\\(\\$ctrl\\.currLoc\\.location\\)\\" class=\\"md-title ng-binding zero-margin\\">(.*?)<\/h4>]];
@@ -985,7 +886,7 @@ function ImportAndUpdateRecordChromium()
 		library = tostring(library.Result);
 		LogDebug("PrimoVE: Javascript found library " .. library);
 	else
-		LogDebug("PrimoVE: Javascript error: " .. library.Message);
+		LogDebug("PrimoVE: Javascript error getting library: " .. library.Message);
 	end
 
 	local locationregexmatchpattern = [[<span ng-if=\\"\\$ctrl\\.currLoc\\.location &amp;&amp; \\$ctrl\\.currLoc\\.location\\.subLocation &amp;&amp; \\$ctrl\\.getSubLibraryName\\(\\$ctrl\\.currLoc\\.location\\)\\" ng-bind-html=\\"\\$ctrl\\.currLoc\\.location\\.collectionTranslation\\">(.*?)<\/span>]];
@@ -994,7 +895,7 @@ function ImportAndUpdateRecordChromium()
 		location = tostring(location.Result);
 		LogDebug("PrimoVE: Javascript found location " .. location);
 	else
-		LogDebug("PrimoVE: Javascript error: " .. location.Message);
+		LogDebug("PrimoVE: Javascript error finding location: " .. location.Message);
 	end		
 
 	local callnumberregexmatchpattern = [[<span ng-if=\\"\\$ctrl\\.currLoc\\.location\\.callNumber\\" dir=\\"auto\\">(.*?)<\/span>]];
@@ -1003,7 +904,7 @@ function ImportAndUpdateRecordChromium()
 		callnumber = tostring(callnumber.Result);
 		LogDebug("PrimoVE: Javascript found call number " .. callnumber);
 	else
-		LogDebug("PrimoVE: Javascript error: " .. callnumber.Message);
+		LogDebug("PrimoVE: Javascript error getting call number: " .. callnumber.Message);
 		-- some ULS items may not have call numbers.
 		callnumber = '';
 	end		
@@ -1062,92 +963,6 @@ function ImportAndUpdateRecordChromium()
 	ExecuteCommand("Save", {"Transaction"});
 	EnoughBarcodes();
 end
-
-
-function ImportAndUpdateRecordIE()
-	--Determine whether we need to update call number, library, and location, or just append another delimited barcode
-	local existingbarcodes = GetFieldValue("Transaction", "ItemInfo1");
-	local tagElements = PrimoVEForm.Browser.WebBrowser.Document:GetElementsByTagName("prm-location-items");
-
-	local status = {} ;
-	local library = {} ;
-	local location = {} ;
-	local callnumber = {} ;
-	local barcode = {};
-
-	--MATCH STRINGS
-	--Item status
-	--<span class="availability-status available" translate="fulldisplay.availabilty.available">
-	--Item location
-	--<h4 class="md-title ng-binding zero-margin" ng-if="$ctrl.currLoc.location &amp;&amp; $ctrl.getLibraryName($ctrl.currLoc.location)">
-	--Library
-	--<span ng-if="$ctrl.currLoc.location &amp;&amp; $ctrl.currLoc.location.subLocation &amp;&amp; $ctrl.getSubLibraryName($ctrl.currLoc.location)" ng-bind-html="$ctrl.currLoc.location.collectionTranslation">
-	--Call number
-	--<span dir="auto" ng-if="$ctrl.currLoc.location.callNumber">
-	--ESCAPE QUOTES WITH \
-	--ESCAPE ( ) . % + - * ? [ ^ $ with %
-	--[SIC] fulldisplay.availbilty.available is not spelled correctly because PrimoVE spells the class this way
-	--<span class=\"availability%-status available\" translate=\"fulldisplay%.availabilty%.available\">
-	--<h4 class=\"md%-title ng%-binding zero%-margin\" ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.getLibraryName%(%$ctrl%.currLoc%.location%)\">
-	--<span ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.currLoc%.location%.subLocation &amp;&amp; %$ctrl%.getSubLibraryName%(%$ctrl%.currLoc%.location%)\" ng%-bind%-html=\"%$ctrl%.currLoc%.location%.collectionTranslation\">
-	--<span dir=\"auto\" ng%-if=\"%$ctrl%.currLoc%.location%.callNumber\">
-
-		if tagElements ~= nil then
-			for j=0, tagElements.Count - 1 do
-				divElement = PrimoVEForm.Browser:GetElementByCollectionIndex(tagElements, j);
-				innerhtmlstring = divElement.innerHTML;
-			
-				barcode[j] = innerhtmlstring:match("<p>Barcode: (.-)</p>")
-							
-				--eliminate the risk of impatient users clicking the button to add/append the same barcode multiple times
-				if (string.find(existingbarcodes,barcode[j]) ~= nil) then
-					interfaceMngr:ShowMessage("Barcode " .. barcode[j] .. " was already added to this transaction!","Duplicate barcode");
-					return;
-				end
-							
-				if (existingbarcodes == "" or existingbarcodes == nil) then						
-					SetFieldValue("Transaction", "ItemInfo1", barcode[j]);
-					
-					--If no barcode exists in the transaction, then we obtain the callnumber, library, and location for the first barcode selected.  There is no need to append all locations for each barcode, as ILL staff use these only for referencee
-					
-				
-					-- Item "Available" status could be used in the future to prevent placing requests for items that are on loan or missing
-					status[j] = innerhtmlstring:match("<span class=\"availability%-status available\" translate=\"fulldisplay%.availabilty%.available\">(.-)<");
-							
-					library[j] = innerhtmlstring:match("<h4 class=\"md%-title ng%-binding zero%-margin\" ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.getLibraryName%(%$ctrl%.currLoc%.location%)\">(.-)<");
-					location[j] = innerhtmlstring:match("<span ng%-if=\"%$ctrl%.currLoc%.location &amp;&amp; %$ctrl%.currLoc%.location%.subLocation &amp;&amp; %$ctrl%.getSubLibraryName%(%$ctrl%.currLoc%.location%)\" ng%-bind%-html=\"%$ctrl%.currLoc%.location%.collectionTranslation\">(.-)<");
-					callnumber[j]= innerhtmlstring:match("<span dir=\"auto\" ng%-if=\"%$ctrl%.currLoc%.location%.callNumber\">(.-)<");
-							
-					if (callnumber[j] ~= nil) then 
-						SetFieldValue("Transaction", "CallNumber", callnumber[j]);
-					end
-							
-							
-					if ((library[j] ~= nil) and (location[j] ~= nil)) then
-						parsedlocation  = string.gsub(location[j],' %(Request This Item%)','')
-						SetFieldValue("Transaction", "Location", library[j].." "..parsedlocation);
-					end
-					
-					
-				else
-					local appendedbarcodes = existingbarcodes .. "/" .. barcode[j];
-					SetFieldValue("Transaction","ItemInfo1", appendedbarcodes);
-				end
-							
-					
-			end
-				
-			
-		else
-			PrimoVEForm.ImportButton.BarButton.Enabled = false;
-			
-		end
-		
-
-	ExecuteCommand("Save", {"Transaction"});
-	EnoughBarcodes();
-end
-
 
 
 --A simple function to get the number of pieces in a transaction for iterative actions
