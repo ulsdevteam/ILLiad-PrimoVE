@@ -2,7 +2,7 @@
 <Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Name>PrimoVE</Name>
   <Author>University of Pittsburgh - based on work by Mark Sullivan, IDS Project</Author>
-  <Version>9.0</Version>
+  <Version>10.0</Version>
   <Active>True</Active>
   <Type>Addon</Type>
   <Description>Performs a Title, OCLC#, ISBN, and ISSN Search in the Primo VE interface and allows API Patron Physical Item Requests.</Description>
@@ -12,7 +12,7 @@
   <Permissions />
   <Settings>
     <Setting name="DebugMode" value="false" type="boolean">
-      <Description>If TRUE, this addon operates in the Sandbox environment.</Description>
+      <Description>If checked, this addon operates in the Sandbox environment.</Description>
     </Setting>
     <Setting name="APIEndpoint" value="https://api-na.hosted.exlibrisgroup.com/almaws/v1/" type="string">
       <Description>Alma API endpoint address.</Description>
@@ -46,9 +46,6 @@
     </Setting>
     <Setting name="PickupLocationLibrary" value="HILL" type="string">
       <Description>Alma Library code for patron physical item request destination.  Ensure that this location has a hold shelf.</Description>
-    </Setting>
-	<Setting name="UseChromiumBrowser" value="true" type="boolean">
-      <Description>If TRUE, this addon uses the Chromium web browser.  If FALSE, browser is IE 11.</Description>
     </Setting>
   </Settings>
   <Files>
